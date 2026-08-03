@@ -15,7 +15,6 @@ const BASE_VERTICES = [
   { x: -1, y: 1, z: 1 }, // 7
 ];
 
-// Defining faces by their vertex indices (Counter-clockwise order facing outward)
 const FACES = [
   [0, 3, 2, 1], // front
   [5, 6, 7, 4], // back
@@ -59,11 +58,25 @@ function getConvexHull(pts: { x: number; y: number }[]) {
   return lower.concat(upper);
 }
 
+// Calculates the area of a 2D polygon using the Shoelace Formula
+function getPolygonArea(pts: { x: number; y: number }[]) {
+  let area = 0;
+  const n = pts.length;
+  if (n < 3) return 0;
+
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    area += pts[i].x * pts[j].y;
+    area -= pts[j].x * pts[i].y;
+  }
+  return Math.abs(area / 2);
+}
+
 export default function Home() {
   const [rotX, setRotX] = useState(330);
   const [rotY, setRotY] = useState(45);
 
-  const { facesToRender, shadowPointsStr } = useMemo(() => {
+  const { facesToRender, shadowPointsStr, shadowArea } = useMemo(() => {
     const radX = (rotX * Math.PI) / 180;
     const radY = (rotY * Math.PI) / 180;
     const cx = Math.cos(radX), sx = Math.sin(radX);
@@ -85,10 +98,10 @@ export default function Home() {
 
     // 2. Calculate Shadow coordinates mapped onto a virtual 3D floor
     const FLOOR_Y = 160;
-    const lightRay = { x: 0.3, y: 1.0, z: -0.2 }; // Light points down and slightly right/out
+    const lightRay = { x: 0.3, y: 1.0, z: -0.2 }; 
     
     const shadow3D = rotated.map((p) => {
-      const t = (FLOOR_Y - p.y) / lightRay.y; // Intersection with floor plane
+      const t = (FLOOR_Y - p.y) / lightRay.y; 
       return {
         x: p.x + t * lightRay.x,
         y: FLOOR_Y,
@@ -105,12 +118,12 @@ export default function Home() {
     const projCube = rotated.map(project);
     const projShadow = shadow3D.map(project);
 
-    // 4. Trace the outline of the shadow
+    // 4. Trace the outline of the shadow and calculate its area
     const shadowHull = getConvexHull(projShadow);
     const shadowStr = shadowHull.map((p) => `${p.x},${p.y}`).join(" ");
+    const area = getPolygonArea(shadowHull);
 
     // 5. Lighting and Backface Culling for the Cube
-    // Vector pointing to the main light source for face shading
     const lightDir = { x: -0.5, y: -0.7, z: -0.8 }; 
     const lLen = Math.sqrt(lightDir.x ** 2 + lightDir.y ** 2 + lightDir.z ** 2);
     lightDir.x /= lLen; lightDir.y /= lLen; lightDir.z /= lLen;
@@ -122,7 +135,6 @@ export default function Home() {
       const p1 = rotated[indices[1]];
       const p2 = rotated[indices[2]];
 
-      // Calculate surface normal using Cross Product
       const v1 = { x: p1.x - p0.x, y: p1.y - p0.y, z: p1.z - p0.z };
       const v2 = { x: p2.x - p1.x, y: p2.y - p1.y, z: p2.z - p1.z };
 
@@ -132,21 +144,16 @@ export default function Home() {
       const nLen = Math.sqrt(nx ** 2 + ny ** 2 + nz ** 2);
       nx /= nLen; ny /= nLen; nz /= nLen;
 
-      // Face center point
       const cx = indices.reduce((sum, idx) => sum + rotated[idx].x, 0) / 4;
       const cy = indices.reduce((sum, idx) => sum + rotated[idx].y, 0) / 4;
       const cz = indices.reduce((sum, idx) => sum + rotated[idx].z, 0) / 4;
 
-      // Vector from camera (at 0,0,-FL) to face center
       const viewDot = nx * cx + ny * cy + nz * (cz + FL);
 
-      // Backface culling: only render if face points towards the camera
       if (viewDot < 0) {
-        // Dot product between normal and light direction determines brightness
         const intensity = nx * lightDir.x + ny * lightDir.y + nz * lightDir.z;
-        const factor = 0.35 + Math.max(0, intensity) * 0.65; // Ambient + Diffuse
+        const factor = 0.35 + Math.max(0, intensity) * 0.65;
 
-        // Base color: Tailwind Blue-500 (59, 130, 246) modified by lighting factor
         const r = Math.round(59 * factor);
         const g = Math.round(130 * factor);
         const b = Math.round(246 * factor);
@@ -162,15 +169,18 @@ export default function Home() {
       }
     }
 
-    // Sort by Z index descending (Painter's algorithm)
     renderedFaces.sort((a, b) => b.avgZ - a.avgZ);
 
-    return { facesToRender: renderedFaces, shadowPointsStr: shadowStr };
+    return { 
+      facesToRender: renderedFaces, 
+      shadowPointsStr: shadowStr,
+      shadowArea: area
+    };
   }, [rotX, rotY]);
 
   return (
     <div className="flex flex-col min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black p-6 sm:p-12">
-      <main className="flex w-full max-w-3xl flex-col items-center gap-10 bg-white dark:bg-zinc-950 p-8 sm:p-12 rounded-3xl shadow-xl border border-zinc-200 dark:border-zinc-800">
+      <main className="flex w-full max-w-3xl flex-col items-center gap-8 bg-white dark:bg-zinc-950 p-8 sm:p-12 rounded-3xl shadow-xl border border-zinc-200 dark:border-zinc-800">
         <div className="text-center">
           <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 mb-3">
             Interactive 3D Engine
@@ -178,25 +188,36 @@ export default function Home() {
         </div>
 
         {/* 3D Render Viewport */}
-        <div className="relative w-full max-w-md aspect-square bg-zinc-100 dark:bg-zinc-900 rounded-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800 flex items-center justify-center shadow-inner">
-          <svg viewBox="-300 -300 600 600" className="w-full h-full">
-            <defs>
-              <filter id="shadow-blur">
-                <feGaussianBlur stdDeviation="6" />
-              </filter>
-            </defs>
+        <div className="flex flex-col items-center w-full">
+          <div className="relative w-full max-w-md aspect-square bg-zinc-100 dark:bg-zinc-900 rounded-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800 flex items-center justify-center shadow-inner">
+            <svg viewBox="-300 -300 600 600" className="w-full h-full">
+              <defs>
+                <filter id="shadow-blur">
+                  <feGaussianBlur stdDeviation="6" />
+                </filter>
+              </defs>
 
-            {facesToRender.map((f) => (
-              <polygon
-                key={f.id}
-                points={f.points}
-                fill={f.color}
-                stroke="rgba(255,255,255,0.15)"
-                strokeWidth="1.5"
-                strokeLinejoin="round"
-              />
-            ))}
-          </svg>
+              {/* Render Sorted Cube Faces */}
+              {facesToRender.map((f) => (
+                <polygon
+                  key={f.id}
+                  points={f.points}
+                  fill={f.color}
+                  stroke="rgba(255,255,255,0.15)"
+                  strokeWidth="1.5"
+                  strokeLinejoin="round"
+                />
+              ))}
+            </svg>
+          </div>
+          
+          {/* Shadow Area Readout Display - HIGH CONTRAST UPDATE */}
+          <div className="flex justify-between items-center w-full max-w-md mt-4 px-4 py-4 bg-zinc-100 dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Projected Shadow Area</span>
+            <span className="tabular-nums font-mono text-base font-bold bg-blue-500 text-white px-3 py-1.5 rounded-md shadow-md">
+              {Math.round(shadowArea).toLocaleString()} px²
+            </span>
+          </div>
         </div>
 
         {/* Controls */}
@@ -204,7 +225,7 @@ export default function Home() {
           <div className="flex flex-col gap-3">
             <label className="flex justify-between text-sm font-semibold text-zinc-700 dark:text-zinc-300">
               <span>X-Axis Rotation (Pitch)</span>
-              <span className="tabular-nums">{rotX}°</span>
+              <span className="tabular-nums font-mono">{rotX}°</span>
             </label>
             <input
               type="range"
@@ -218,7 +239,7 @@ export default function Home() {
           <div className="flex flex-col gap-3">
             <label className="flex justify-between text-sm font-semibold text-zinc-700 dark:text-zinc-300">
               <span>Y-Axis Rotation (Yaw)</span>
-              <span className="tabular-nums">{rotY}°</span>
+              <span className="tabular-nums font-mono">{rotY}°</span>
             </label>
             <input
               type="range"
